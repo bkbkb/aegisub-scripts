@@ -714,3 +714,31 @@ function add_fs30(subs, sel)
 end
 
 aegisub.register_macro("0.0/Add fs30", "Add fs30", add_fs30)
+
+--[[ ============================================================================
+-- Split to frames
+--]]
+
+function split_to_frames(subs, sel)
+    local offset = 0
+    local new_sel = {}
+    for _, idx in ipairs(sel) do
+        local line = subs[idx + offset]
+        local start_frame = aegisub.frame_from_ms(line.start_time)
+        local end_frame = aegisub.frame_from_ms(line.end_time)
+        for frame = start_frame, end_frame do
+            line.start_time = aegisub.ms_from_frame(frame)
+            line.end_time = aegisub.ms_from_frame(frame + 1)
+            if frame == start_frame then
+                subs[idx + offset] = line
+            else
+                offset = offset + 1
+                subs.insert(idx + offset, line)
+            end
+            new_sel[#new_sel + 1] = idx + offset
+        end
+    end
+    return new_sel
+end
+
+aegisub.register_macro("0.0/Split to frames", "Split to frames", split_to_frames)
