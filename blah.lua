@@ -331,6 +331,9 @@ end
 aegisub.register_macro("0.0/Toggle beginning @", "rt",
     function(subs, sel) return toggle_begin_char(subs, sel, "@") end)
 
+aegisub.register_macro("0.0/Toggle beginning #", "rt",
+    function(subs, sel) return toggle_begin_char(subs, sel, "#") end)
+
 --[[ ============================================================================
 -- Select current frame
 --   选中当前视频时间所对应的字幕。
@@ -726,7 +729,7 @@ function split_to_frames(subs, sel)
         local line = subs[idx + offset]
         local start_frame = aegisub.frame_from_ms(line.start_time)
         local end_frame = aegisub.frame_from_ms(line.end_time)
-        for frame = start_frame, end_frame do
+        for frame = start_frame, end_frame - 1 do
             line.start_time = aegisub.ms_from_frame(frame)
             line.end_time = aegisub.ms_from_frame(frame + 1)
             if frame == start_frame then
@@ -742,3 +745,55 @@ function split_to_frames(subs, sel)
 end
 
 aegisub.register_macro("0.0/Split to frames", "Split to frames", split_to_frames)
+
+--[[ ============================================================================
+-- Batch shift
+--]]
+function batch_shift(subs, sel)
+    local anchor_index
+    for _, idx in ipairs(sel) do
+        local line = subs[idx]
+        if line.text:startsWith("@@@") then
+            anchor_index = idx
+        end
+    end
+
+    if anchor_index == nil then anchor_index = sel[1] end
+    local cur_time = aegisub.ms_from_frame(aegisub.project_properties().video_position)
+    local shift = cur_time - subs[anchor_index].start_time
+
+    for _, idx in ipairs(sel) do
+        local line = subs[idx]
+        line.start_time = line.start_time + shift
+        line.end_time = line.end_time + shift
+        subs[idx] = line
+    end
+
+    return sel
+end
+
+aegisub.register_macro("0.0/Batch shift", "rt", batch_shift)
+
+--[[ ============================================================================
+-- Split English and Chinese
+--]]
+function split_eng_chn(subs, sel)
+    local offset = 0
+    local new_sel = {}
+    for _, idx in ipairs(sel) do
+        local real_idx = idx + offset
+        local line = subs[real_idx]
+        local chn, eng = line.text:getParts()
+        line.text = chn
+        subs[real_idx] = line
+        line.text = eng
+        subs.insert(real_idx+1, line)
+        offset = offset + 1
+        new_sel[#new_sel + 1] = real_idx
+        new_sel[#new_sel + 1] = real_idx + 1
+    end
+    return
+end
+
+aegisub.register_macro("0.0/Split English and Chinese", "rt", split_eng_chn)
+
