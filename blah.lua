@@ -57,7 +57,7 @@ function between(a, b, c)
     return a >= b and a <= c
 end
 
-function string:getParts()
+function string:get_parts()
     local parts = self:split("\\N", 1)
     local chinese = ""
     local english = ""
@@ -399,7 +399,7 @@ end
 function add_music_symbol(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:getParts()
+        local chn, eng = line.text:get_parts()
         line.text = combine(add_music_symbol_to_part(chn), add_music_symbol_to_part(eng))
         subs[idx] = line
     end
@@ -442,7 +442,7 @@ end
 function lint(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:getParts()
+        local chn, eng = line.text:get_parts()
         line.text = combine(lint_chinese(chn), lint_english(eng))
         subs[idx] = line
     end
@@ -558,7 +558,7 @@ local short_spaces = " "
 function apply_multi_spaces(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:getParts()
+        local chn, eng = line.text:get_parts()
         local first_multi_space_index = chn:find(multi_spaces)
 
         local multi_space_group_index = -1
@@ -600,7 +600,7 @@ aegisub.register_macro("0.0/Multi spaces", "将中文部分的空格变成多个
 function single_space(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:getParts()
+        local chn, eng = line.text:get_parts()
         line.text = combine(table.concat(chn:split(" +", 99999, true), short_spaces), eng)
         subs[idx] = line
     end
@@ -664,7 +664,7 @@ aegisub.register_macro("0.0/Duplicate with border", "复制为两个图层并在
 function save_text_file(subs, sel, unify_spaces)
     if #sel == 0 then return end
 
-    local num_header_lines = count_header_lines(subs)
+    local num_header_lines = count_hader_lines(subs)
 
     local file_name = aegisub.file_name():gsub("%.[^%.]*$", "")
         .. "." .. (sel[1] - num_header_lines)
@@ -708,7 +708,7 @@ aegisub.register_macro("0.0/Save as text file and unify spaces", "存为纯文�
 function add_fs30(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng, chn_metadata, eng_metadata = line.text:getParts()
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
         if not eng:startsWith("{\\fs30") then eng = "{\\fs30}" .. eng end
         line.text = combine(chn, eng, chn_metadata, eng_metadata)
         subs[idx] = line
@@ -783,7 +783,7 @@ function split_eng_chn(subs, sel)
     for _, idx in ipairs(sel) do
         local real_idx = idx + offset
         local line = subs[real_idx]
-        local chn, eng = line.text:getParts()
+        local chn, eng = line.text:get_parts()
         line.text = chn
         subs[real_idx] = line
         line.text = eng
@@ -797,3 +797,116 @@ end
 
 aegisub.register_macro("0.0/Split English and Chinese", "rt", split_eng_chn)
 
+--[[ ============================================================================
+-- Snap to frame
+--]]
+function snap_to_frame(subs, sel)
+    for _, idx in ipairs(sel) do
+        local line = subs[idx]
+        line.start_time = aegisub.ms_from_frame(aegisub.frame_from_ms(line.start_time))
+        line.end_time = aegisub.ms_from_frame(aegisub.frame_from_ms(line.end_time))
+        subs[idx] = line
+    end
+    return sel
+end
+
+aegisub.register_macro("0.0/Snap to Frame", "rt", snap_to_frame)
+
+--[[ ============================================================================
+-- Find all used fonts
+--]]
+function normalize_font(fontname) 
+    if (fontname:sub(1, 1) == "@") then
+        return fontname:sub(2, #fontname)
+    else 
+        return fontname 
+    end 
+end
+
+function list_fonts(subs, sel)
+    local header_lines = count_header_lines(subs)
+    local meta, styles = karaskel.collect_head(subs, false)
+
+    local fonts = {}
+    for _, style in ipairs(styles) do
+        fonts[normalize_font(style.fontname)] = style.name 
+    end
+
+    local num_lines = #subs
+    for idx = header_lines, num_lines do 
+        local line = subs[idx] 
+        if line.text ~= nil then 
+            for font in line.text:gmatch("\\fn([^\\}]*)") do 
+                local normalized = normalize_font(font)
+                if fonts[normalized] == nil then
+                    fonts[normalized] = idx 
+                end
+            end 
+        end 
+    end
+
+    for font, source in pairs(fonts) do 
+        aegisub.log("%s (%s)\n", font, source)
+    end 
+
+    aegisub.log("\n\n\nWithout source:\n")
+
+    for font in pairs(fonts) do 
+        aegisub.log("%s\n", font)
+    end 
+
+    return { sel }
+end
+
+aegisub.register_macro("0.0/List Fonts", "列出字幕文件中所有使用过的字体", list_fonts)
+
+--[[ ============================================================================
+-- Replace English names in Chinese parts
+--]]
+
+function nocase(s)
+    s = string.gsub(s, "%a", function (c)
+          return string.format("[%s%s]", string.lower(c),
+                                         string.upper(c))
+        end)
+    return s
+end
+
+function eng_replace_helper(subs, idx, fromName, toName)
+    local line = subs[idx]
+    if line.text ~= nil then 
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
+        local chn_replaced = chn:gsub(fromName, toName)
+        if chn ~= chn_replaced then 
+            line = combine(chn, eng, chn_metadata, eng_metadata)
+            subs[idx] = line
+        end
+    end
+end 
+
+function eng_replace(subs, sel)
+    local config = {
+        {class="edit", name="from", text="", x=0, y=0, width=25},
+        {class="edit", name="to", text="", x=0, y=1, width=25},
+        {class="checkbox", name="all_lines", x = 0, y = 2, value=true, label="All lines"}
+    }
+    local btn, result = aegisub.dialog.display(config)
+    if btn then 
+        local num_header_lines = count_header_lines(subs)
+        local fromName = nocase(result["from"])
+        local toName = result["to"]
+        if result["all_lines"] then 
+            idx = num_header_lines
+            while idx < #subs do 
+                eng_replace_helper(subs, idx, fromName, toName) 
+                idx = idx + 1
+            end 
+        end 
+        for _, idx in ipairs(sel) do 
+            eng_replace_helper(subs, idx, fromName, toName)
+        end
+    end
+    return sel 
+end
+
+aegisub.register_macro("0.0/Replace English names", "rt", eng_replace)
