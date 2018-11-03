@@ -399,8 +399,13 @@ end
 function add_music_symbol(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:get_parts()
-        line.text = combine(add_music_symbol_to_part(chn), add_music_symbol_to_part(eng))
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
+        line.text = combine(
+            add_music_symbol_to_part(chn), 
+            add_music_symbol_to_part(eng), 
+            chn_metadata, 
+            eng_metadata
+        )
         subs[idx] = line
     end
 end
@@ -442,8 +447,9 @@ end
 function lint(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:get_parts()
-        line.text = combine(lint_chinese(chn), lint_english(eng))
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
+        line.text = combine(lint_chinese(chn), lint_english(eng), 
+            chn_metadata, eng_metadata)
         subs[idx] = line
     end
     return sel
@@ -558,7 +564,7 @@ local short_spaces = " "
 function apply_multi_spaces(subs, sel)
     for _, idx in ipairs(sel) do
         local line = subs[idx]
-        local chn, eng = line.text:get_parts()
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
         local first_multi_space_index = chn:find(multi_spaces)
 
         local multi_space_group_index = -1
@@ -587,7 +593,7 @@ function apply_multi_spaces(subs, sel)
 
                 new_chn = new_chn .. separator .. v
             end
-            line.text = combine(new_chn, eng)
+            line.text = combine(new_chn, eng, chn_metadata, eng_metadata)
             subs[idx] = line
         end
     end
@@ -664,7 +670,7 @@ aegisub.register_macro("0.0/Duplicate with border", "复制为两个图层并在
 function save_text_file(subs, sel, unify_spaces)
     if #sel == 0 then return end
 
-    local num_header_lines = count_hader_lines(subs)
+    local num_header_lines = count_header_lines(subs)
 
     local file_name = aegisub.file_name():gsub("%.[^%.]*$", "")
         .. "." .. (sel[1] - num_header_lines)
@@ -783,7 +789,7 @@ function split_eng_chn(subs, sel)
     for _, idx in ipairs(sel) do
         local real_idx = idx + offset
         local line = subs[real_idx]
-        local chn, eng = line.text:get_parts()
+        local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
         line.text = chn
         subs[real_idx] = line
         line.text = eng
@@ -878,7 +884,7 @@ function eng_replace_helper(subs, idx, fromName, toName)
         local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
         local chn_replaced = chn:gsub(fromName, toName)
         if chn ~= chn_replaced then 
-            line = combine(chn, eng, chn_metadata, eng_metadata)
+            line.text = combine(chn_replaced, eng, chn_metadata, eng_metadata)
             subs[idx] = line
         end
     end
