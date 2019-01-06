@@ -391,9 +391,11 @@ aegisub.register_macro("0.0/Select current frame", "选中当前视频时间所�
 --   在中文和英文部分的开头和结尾加上♪符号。
 --]]
 function add_music_symbol_to_part(str)
+    -- local symbol = "{\\fnArial}♪{\\fn}"
+    local symbol = "♪"
     if #str == 0 then return "" end
-    local trimmed = str:gsub("^♪", ""):gsub("♪$", ""):trim()
-    return "♪ " .. trimmed .. " ♪"
+    local trimmed = str:gsub("^" .. symbol, ""):gsub(symbol .. "$", ""):trim()
+    return symbol .. " " .. trimmed .. " " .. symbol
 end
 
 function add_music_symbol(subs, sel)
@@ -419,6 +421,7 @@ aegisub.register_macro("0.0/Add music symbol", "添加音乐符号", add_music_s
 --     1. 将中文部分的一些标点替换为空格。
 --     2. 将英文部分中的一些中文标点替换为相对应的英文标点。
 --     3. 确保英文部分的一些标点符号之后有空格。
+--     4. 将英文部分多余的换行替换为空格。
 --]]
 function lint_chinese(str)
     local punctuations_to_remove = { "！", "？", "，", "。", "：", "；", "%.%.%.", "!", "%?", "," }
@@ -441,6 +444,7 @@ function lint_english(str)
             :gsub("(%a)([%.,!?])(%w)", "%1%2 %3")
             :gsub("(%w)([%.,!?])(%a)", "%1%2 %3")
             :gsub("(%d)([!?])(%d)", "%1%2 %3")
+            :gsub("\\N", " ")
     return result
 end
 
@@ -500,7 +504,7 @@ function apply_fade(subs, sel, act, mode)
         if mode == "remove" then
             line.text = cleaned
         else
-            line.text = string.format("{\\fad(%d,%d)}%s", fade_in, fade_out, cleaned)
+            line.text = string.format("{\\fad(%d,%d)}%s", fade_in, fade_out, cleaned):gsub("}{", "")
         end
         subs[idx] = line
     end
@@ -644,7 +648,7 @@ function duplicate_with_border(subs, sel)
         local i = idx + diff
         local line = subs[i]
         local text = line.text:gsub("\\bord%d*", "")
-        line.text = "{\\bord3}" .. text
+        line.text = ("{\\bord3\\1a&HFF&}" .. text):gsub("}{", "")
         subs.insert(i, line)
         diff = diff + 1
         i = i + 1
@@ -712,10 +716,12 @@ aegisub.register_macro("0.0/Save as text file and unify spaces", "存为纯文�
 --]]
 
 function add_fs30(subs, sel)
+    -- local style = "\\rJP"
+    local style = "\\fs30"
     for _, idx in ipairs(sel) do
         local line = subs[idx]
         local chn, eng, chn_metadata, eng_metadata = line.text:get_parts()
-        if not eng:startsWith("{\\fs30") then eng = "{\\fs30}" .. eng end
+        if not eng:startsWith("{" .. style) then eng = "{" .. style .. "}" .. eng end
         line.text = combine(chn, eng, chn_metadata, eng_metadata)
         subs[idx] = line
     end
@@ -916,3 +922,65 @@ function eng_replace(subs, sel)
 end
 
 aegisub.register_macro("0.0/Replace English names", "rt", eng_replace)
+
+--[[ ============================================================================
+-- Select all screen text lines
+--]]
+function select_screen_text(subs) 
+    local sel = {}
+    local num_header_lines = count_header_lines(subs)
+    for idx = num_header_lines, #subs do 
+        local text = subs[idx].text
+        if text ~= nil and text:startsWith("@后期") and not text:startsWith("@后期（注") then 
+            sel[#sel + 1] = idx 
+        end 
+    end 
+    return sel 
+end 
+
+aegisub.register_macro("0.0/Select screen text lines", "rt", select_screen_text)
+
+--[[ ============================================================================
+-- Popsub simulation
+--]]
+function popsub(subs, sel) 
+    local num_header_lines = count_header_lines(subs) 
+    local start_time = aegisub.ms_from_frame(aegisub.project_properties().video_position) - 500
+    local new_selection = num_header_lines
+    for _, idx in ipairs(sel) do 
+        local line = subs[idx]
+        line.start_time = start_time
+        if (line.end_time < start_time) then line.end_time = start_time + 1000 end
+        subs[idx] = line
+        local new_idx = idx + 1
+        if (new_idx > #subs) then new_idx = idx end 
+        if new_idx > new_selection then new_selection = new_idx end 
+    end 
+    return {new_selection}
+end 
+
+aegisub.register_macro("0.0/Snap and select next", "rt", popsub)
+
+--[[ ============================================================================
+-- Split by character
+--]]
+function split_by_str(subs, sel, char) 
+    local delta = 0
+    new_sel = {}
+    for _, idx in ipairs(sel) do 
+        local real_idx = idx + delta
+        local line = subs[real_idx] 
+        local parts = line.text:split(char)
+        for _, text in ipairs(parts) do 
+            line.text = text 
+            subs.insert(real_idx, line)
+            new_sel[#new_sel + 1] = real_idx
+            real_idx = real_idx + 1
+            delta = delta + 1
+        end     
+    end 
+    return new_sel 
+end 
+
+aegisub.register_macro("0.0/Split at spaces", "rt", function(subs, sel) return split_by_str(subs, sel, " ") end)   
+aegisub.register_macro("0.0/Split at newline", "rt", function(subs, sel) return split_by_str(subs, sel, "\\N") end)   
